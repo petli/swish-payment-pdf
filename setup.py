@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 from setuptools import setup
 
@@ -9,7 +9,7 @@ setup(
     description = 'Convert a CSV report of Swish payments into separate PDF files for accounting',
     author = 'Peter Liljenberg',
     author_email = 'peter.liljenberg@gmail.com',
-    keywords = 'swish',
+    keywords = 'swish accounting',
     url = 'https://github.com/petli/swish-payment-pdf',
 
     scripts = [ 'swish2pdf' ],
