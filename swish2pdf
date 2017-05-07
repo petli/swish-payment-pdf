@@ -8,6 +8,8 @@ import os
 import argparse
 import csv
 import re
+import time
+from itertools import groupby
 
 import fpdf
 
@@ -26,8 +28,8 @@ pdf_fields = {
 parser = argparse.ArgumentParser(description = 'Translate Swish CSV report into PDFs')
 parser.add_argument('-o', '--output-dir', default = '.',
                     help = 'Output directory for the files, default is current directory.')
-parser.add_argument('-e', '--encoding', default = 'UTF-16',
-                    help = 'Input file text encoding, default UTF-16.')
+parser.add_argument('-e', '--encoding', default = 'iso-8859-1',
+                    help = 'Input file text encoding, default iso-8859-1.')
 parser.add_argument('input_files', metavar = 'CSV', nargs = '*',
                     help = 'Files to process. If none are provided, stdin is read.')
 
@@ -44,6 +46,15 @@ def main():
         translate_csv(csv.reader(f, delimiter = ';', skipinitialspace = True), args.output_dir)
 
 def translate_csv(csv_input, output_dir):
+    def keyfunc(v):
+        return v['_accounting_date']
+
+    rows = sorted(read_csv(csv_input), key=keyfunc)
+    for date, payments in groupby(rows, key=keyfunc):
+        generate_pdf(date, payments, output_dir)
+
+
+def read_csv(csv_input):
     header = None
     for row in csv_input:
         # Skip rows with too few columns, those are report metadata
@@ -56,7 +67,17 @@ def translate_csv(csv_input, output_dir):
                     if field:
                         values[field] = strip_escape(row[i])
 
-                generate_pdf(values, output_dir)
+                accounting_date = values['datum']
+                date = time.strptime(accounting_date, '%Y-%m-%d')
+                hour = int(values['tid'].split(':')[0])
+
+                # Accounting cutoff seems to be 21:00
+                if hour >= 21:
+                    t = time.mktime(date) + (24 * 3600)
+                    accounting_date = time.strftime('%Y-%m-%d', time.localtime(t))
+
+                values['_accounting_date'] = accounting_date
+                yield values
 
 
 def strip_escape(data):
@@ -69,23 +90,24 @@ def strip_escape(data):
 
 
 
-def generate_pdf(values, output_dir, language = 'sv'):
+def generate_pdf(date, payments, output_dir, language = 'sv'):
     pdf = fpdf.FPDF('P', 'mm', 'A4')
-    pdf.add_page()
-    pdf.set_font('Arial', 'B', 18)
-    pdf.cell(0, 10, 'Swishbetalning', align= 'C', border = 'B')
-    pdf.ln()
 
-    for field, description in pdf_fields[language]:
-        pdf.set_font('Arial', 'B', 14)
-        pdf.cell(60, 10, description)
-        pdf.set_font('Arial', '', 14)
-        pdf.multi_cell(0, 8, values[field])
+    for values in payments:
+        pdf.add_page()
+        pdf.set_font('Arial', 'B', 18)
+        pdf.cell(0, 10, 'Swishbetalning', align= 'C', border = 'B')
+        pdf.ln()
+
+        for field, description in pdf_fields[language]:
+            pdf.set_font('Arial', 'B', 14)
+            pdf.cell(60, 10, description)
+            pdf.set_font('Arial', '', 14)
+            pdf.multi_cell(0, 8, values[field])
 
     # In Python3 fpdf 1.7.2 can only output latin-1
 
-    refnr = values['referensnummer'].replace(' ', '')
-    filename = 'swish_{}_{}.pdf'.format(values['datum'], refnr)
+    filename = 'swish_{}.pdf'.format(values['_accounting_date'])
     path = os.path.join(output_dir, filename)
     with open(path, 'wt', encoding = 'latin-1') as f:
         print('wrote {}'.format(path))
